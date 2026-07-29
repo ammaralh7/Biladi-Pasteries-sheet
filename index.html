@@ -126,7 +126,36 @@
   .btn-send:focus-visible{outline:3px solid var(--gold);}
   .send-hint{text-align:center; font-size:.73rem; color:var(--muted); margin-top:7px;}
 
-  @media (prefers-reduced-motion: reduce){ *{transition:none !important;} }
+  /* item search */
+  .searchbar{position:relative; margin-top:12px;}
+  .searchbar input{
+    width:100%; border:1.5px solid var(--line); border-radius:12px; padding:12px 14px 12px 42px;
+    font-family:'Outfit'; font-size:1rem; color:var(--ink); background:#FDFCF9;
+    -webkit-appearance:none; appearance:none;
+  }
+  .searchbar input:focus{outline:2px solid var(--gold); outline-offset:1px; border-color:var(--gold);}
+  .searchbar svg{position:absolute; left:14px; top:50%; transform:translateY(-50%); width:18px; height:18px; color:var(--muted); pointer-events:none;}
+  .hide{display:none !important;}
+  .no-results{display:none; text-align:center; color:var(--muted); font-size:.92rem; padding:22px 12px; margin-top:12px;}
+  body.no-matches .no-results{display:block;}
+
+  /* required-field validation */
+  .field input.invalid{border-color:var(--red); background:var(--red-bg);}
+  .field input.invalid:focus{outline-color:var(--red); border-color:var(--red);}
+  @keyframes shake{10%,90%{transform:translateX(-1px);}20%,80%{transform:translateX(2px);}30%,50%,70%{transform:translateX(-4px);}40%,60%{transform:translateX(4px);}}
+  .shake{animation:shake .4s;}
+
+  /* sent confirmation */
+  .overlay{position:fixed; inset:0; z-index:100; background:rgba(31,42,68,.5); display:none; align-items:center; justify-content:center; padding:24px;}
+  .overlay.show{display:flex;}
+  .confirm{background:var(--card); border-radius:var(--r); max-width:360px; width:100%; padding:26px 22px 20px; text-align:center; box-shadow:0 18px 50px rgba(31,42,68,.3);}
+  .confirm .tick{width:56px; height:56px; border-radius:50%; background:var(--green-bg); color:var(--green); display:flex; align-items:center; justify-content:center; margin:0 auto 14px;}
+  .confirm h2{font-family:'Fraunces',Georgia,serif; color:var(--navy); font-size:1.2rem; font-weight:700; margin-bottom:6px;}
+  .confirm p{color:var(--muted); font-size:.9rem; line-height:1.45; margin-bottom:18px;}
+  .confirm .btn+.btn{margin-top:9px;}
+  .btn-primary{background:var(--navy); color:#fff; border:none;}
+
+  @media (prefers-reduced-motion: reduce){ *{transition:none !important; animation:none !important;} }
 </style>
 </head>
 <body>
@@ -159,8 +188,15 @@
     </div>
   </div></section>
 
+  <!-- Item search -->
+  <div class="searchbar">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <input id="itemSearch" type="search" placeholder="Search items…" aria-label="Search items" autocomplete="off">
+  </div>
+
   <!-- Items (collapsible) -->
   <section class="card" id="itemsCard"></section>
+  <div class="no-results" id="noResults">No items match your search.</div>
 
   <!-- Notes -->
   <section class="card"><div class="card-pad">
@@ -188,6 +224,17 @@
   <button class="btn-send" id="sendBtn" type="button" disabled>Send report by email</button>
   <div class="send-hint" id="sendHint">Enter your name, invoice and vendor to send.</div>
 </div></div>
+
+<!-- Sent confirmation -->
+<div class="overlay" id="sentOverlay" role="dialog" aria-modal="true" aria-labelledby="sentTitle">
+  <div class="confirm">
+    <div class="tick"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+    <h2 id="sentTitle">Report ready</h2>
+    <p>Your email app should have opened with the report. Once it's sent, start a fresh check-in for the next delivery.</p>
+    <button class="btn btn-primary" id="newDeliveryBtn" type="button">Start new delivery</button>
+    <button class="btn btn-line" id="keepBtn" type="button">Keep this one open</button>
+  </div>
+</div>
 
 <script>
 const CATEGORIES = [
@@ -352,7 +399,63 @@ document.getElementById("sendBtn").addEventListener("click",()=>{
   const email=document.getElementById("fEmail").value.trim();
   const date=document.getElementById("fDate").value||new Date().toISOString().slice(0,10);
   window.location.href="mailto:"+encodeURIComponent(email)+"?subject="+encodeURIComponent("Biladi Delivery Report — "+date)+"&body="+encodeURIComponent(buildReport());
+  setTimeout(()=>document.getElementById("sentOverlay").classList.add("show"),450);
 });
+
+// item search / filter
+function filterItems(q){
+  q=(q||"").trim().toLowerCase();
+  const searching=q.length>0;
+  let totalVisible=0;
+  CATEGORIES.forEach((cat,ci)=>{
+    let visible=0;
+    cat.items.forEach((name,ii)=>{
+      const key=ci+"-"+ii;
+      const match=!searching || name.toLowerCase().includes(q);
+      document.getElementById("item-"+key).classList.toggle("hide",!match);
+      if(match) visible++;
+    });
+    totalVisible+=visible;
+    const catEl=document.getElementById("cat-"+ci);
+    catEl.classList.toggle("hide", searching && visible===0);
+    if(searching && visible>0){
+      catEl.classList.add("open");
+      catEl.querySelector(".cat-head").setAttribute("aria-expanded","true");
+    }
+  });
+  document.body.classList.toggle("no-matches", searching && totalVisible===0);
+  if(!searching){
+    document.querySelectorAll(".cat").forEach(c=>c.classList.remove("hide"));
+    document.querySelectorAll(".cat.open").forEach(c=>{
+      c.classList.remove("open");
+      c.querySelector(".cat-head").setAttribute("aria-expanded","false");
+    });
+    openCat=null;
+  }
+}
+document.getElementById("itemSearch").addEventListener("input",e=>filterItems(e.target.value));
+
+// start a fresh check-in for the next delivery
+function newDelivery(){
+  Object.keys(state).forEach(k=>{
+    state[k]=null;
+    const inp=document.getElementById("qty-"+k);
+    if(inp) inp.value="";
+    paint(k);
+  });
+  ["fInvoice","fNotes"].forEach(id=>document.getElementById(id).value="");
+  document.querySelectorAll(".field input.invalid").forEach(i=>i.classList.remove("invalid"));
+  const now=new Date();
+  document.getElementById("fDate").value=now.toISOString().slice(0,10);
+  document.getElementById("fTime").value=String(now.getHours()).padStart(2,"0")+":"+String(now.getMinutes()).padStart(2,"0");
+  const s=document.getElementById("itemSearch"); s.value=""; filterItems("");
+  document.getElementById("sentOverlay").classList.remove("show");
+  refresh();
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+document.getElementById("newDeliveryBtn").addEventListener("click",newDelivery);
+document.getElementById("keepBtn").addEventListener("click",()=>document.getElementById("sentOverlay").classList.remove("show"));
+document.getElementById("sentOverlay").addEventListener("click",e=>{ if(e.target.id==="sentOverlay") e.target.classList.remove("show"); });
 document.getElementById("csvBtn").addEventListener("click",(e)=>{
   downloadCSV(); const t=e.target, o=t.textContent; t.textContent="Downloaded ✓"; t.classList.add("copied");
   setTimeout(()=>{ t.textContent=o; t.classList.remove("copied"); },1600);
@@ -371,6 +474,12 @@ document.addEventListener("dblclick", e=>e.preventDefault(), { passive:false });
   document.getElementById("fDate").value=now.toISOString().slice(0,10);
   document.getElementById("fTime").value=String(now.getHours()).padStart(2,"0")+":"+String(now.getMinutes()).padStart(2,"0");
   ["fName","fInvoice","fVendor","fNotes","fDate","fTime"].forEach(id=>document.getElementById(id).addEventListener("input",refresh));
+  // highlight required fields once the user leaves them empty
+  ["fName","fInvoice","fVendor"].forEach(id=>{
+    const el=document.getElementById(id);
+    el.addEventListener("blur",()=>el.classList.toggle("invalid", el.value.trim()===""));
+    el.addEventListener("input",()=>{ if(el.value.trim()!=="") el.classList.remove("invalid"); });
+  });
   refresh();
 })();
 </script>
