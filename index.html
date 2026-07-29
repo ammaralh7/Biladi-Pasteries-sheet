@@ -208,11 +208,11 @@
   <section class="card review"><div class="card-pad">
     <div class="card-title">Send report</div>
     <div class="field"><label for="fEmail">Report goes to</label><input id="fEmail" type="email" value="sales@biladicoffeehouse.com" readonly aria-readonly="true"></div>
+    <button class="btn btn-line" id="copyBtn" type="button" style="margin-top:12px">Copy report text</button>
     <div class="more-wrap">
       <button class="more-toggle" id="moreToggle" type="button" aria-expanded="false">Other options ▾</button>
       <div class="more-panel" id="morePanel">
         <button class="btn btn-line" id="csvBtn" type="button">Download CSV (Sheets / Excel)</button>
-        <button class="btn btn-line" id="copyBtn" type="button">Copy report text</button>
         <pre id="reviewBox" aria-live="polite"></pre>
       </div>
     </div>
@@ -241,15 +241,49 @@ const CATEGORIES = [
   { title:"Sandwiches", items:["Tuna Sandwich","Chicken Sandwich","Halloumi Sandwich","Zaatar & Cheese Sandwich","Turkey Sandwich","Beef Baloney Sandwich"] },
   { title:"Croissants", items:["Plain Croissant","Cheese Croissant","Chocolate Croissant","Pistachio Croissant"] },
   { title:"Cheesecakes", items:["Lotus Cheesecake","Pistachio Cheesecake","Dubai Chocolate Cheesecake","Nutella Cheesecake","Ferrero Rocher Cheesecake","Kinder Cheesecake"] },
-  { title:"Cakes", items:["Fig Cake","Fudge Chocolate Cake","Carrot Cake"] },
+  { title:"Cakes", items:["Fig Cake","Fudge Chocolate Cake","Carrot Cake","Red Velvet Cake","Honey Cake"] },
   { title:"Mousse & Teddy Bear Cakes", items:["Blueberry Mousse","Coconut Mousse","Coffee Mousse","Raspberry Mousse","Mango Mousse","Mango Teddy Bear","Strawberry Teddy Bear","Pistachio Teddy Bear","Chocolate Teddy Bear"] },
   { title:"Milk Cakes", items:["Pistachio Milk Cake","Mango Milk Cake","Caramel Milk Cake","Lotus Milk Cake","Ferrero Rocher Milk Cake"] },
   { title:"Specialty Desserts", items:["Honeycomb Cake","San Sebastián","Mahalbia","Lotus Kunafa","Biscoff Tiramisu","Tiramisu","Basbosa","Cinnamon Roll"] },
+  { title:"Other", items:["Beef Fatayer","Potato Fatayer","Sabaya","Grape Leaves"] },
 ];
 
 const state = {};
 CATEGORIES.forEach((c,ci)=>c.items.forEach((_,ii)=>{ state[ci+"-"+ii]=null; }));
 const TOTAL = Object.keys(state).length;
+
+// ---- auto-save (survives accidental refresh) ----
+const STORAGE_KEY="biladi_delivery_v1";
+let saveTimer=null;
+function scheduleSave(){ clearTimeout(saveTimer); saveTimer=setTimeout(saveState,300); }
+function saveState(){
+  try{
+    const data={f:{},items:{}};
+    ["fName","fInvoice","fVendor","fNotes","fDate","fTime"].forEach(id=>data.f[id]=document.getElementById(id).value);
+    CATEGORIES.forEach((cat,ci)=>cat.items.forEach((name,ii)=>{
+      const v=state[ci+"-"+ii];
+      if(v!==null) data.items[cat.title+"|"+name]=v;   // keyed by name so adding items never corrupts saved data
+    }));
+    localStorage.setItem(STORAGE_KEY,JSON.stringify(data));
+  }catch(e){}
+}
+function loadState(){
+  try{
+    const raw=localStorage.getItem(STORAGE_KEY); if(!raw) return;
+    const data=JSON.parse(raw)||{};
+    if(data.f) Object.keys(data.f).forEach(id=>{ const el=document.getElementById(id); if(el && data.f[id]!=null && data.f[id]!=="") el.value=data.f[id]; });
+    if(data.items) CATEGORIES.forEach((cat,ci)=>cat.items.forEach((name,ii)=>{
+      const mk=cat.title+"|"+name;
+      if(mk in data.items){
+        const key=ci+"-"+ii, v=data.items[mk];
+        state[key]=v;
+        const inp=document.getElementById("qty-"+key); if(inp) inp.value=(v===null?"":v);
+        paint(key);
+      }
+    }));
+  }catch(e){}
+}
+function clearSaved(){ try{ localStorage.removeItem(STORAGE_KEY); }catch(e){} }
 
 // build collapsible categories
 const root = document.getElementById("itemsCard");
@@ -344,6 +378,7 @@ function refresh(){
   else if(!venOk) setHint("Enter the vendor to send","Who made this delivery?");
   else setHint("Send report by email","Items left blank are skipped. Opens your email app.");
   reviewBox.textContent = buildReport();
+  scheduleSave();
 }
 function val(id){ return document.getElementById(id).value.trim().length>0; }
 function setHint(btn,hint){ sendBtn.textContent=btn; sendHint.textContent=hint; }
@@ -450,6 +485,7 @@ function newDelivery(){
   document.getElementById("fTime").value=String(now.getHours()).padStart(2,"0")+":"+String(now.getMinutes()).padStart(2,"0");
   const s=document.getElementById("itemSearch"); s.value=""; filterItems("");
   document.getElementById("sentOverlay").classList.remove("show");
+  clearSaved();
   refresh();
   window.scrollTo({top:0,behavior:"smooth"});
 }
@@ -462,7 +498,7 @@ document.getElementById("csvBtn").addEventListener("click",(e)=>{
 });
 document.getElementById("copyBtn").addEventListener("click",async(e)=>{
   try{ await navigator.clipboard.writeText(buildReport()); const t=e.target,o=t.textContent; t.textContent="Copied ✓"; t.classList.add("copied"); setTimeout(()=>{t.textContent=o;t.classList.remove("copied");},1600); }
-  catch(err){ reviewBox.textContent=buildReport(); }
+  catch(err){ reviewBox.textContent=buildReport(); document.getElementById("morePanel").classList.add("open"); }
 });
 
 // Belt-and-suspenders against iOS double-tap zoom, without eating button taps.
@@ -473,6 +509,7 @@ document.addEventListener("dblclick", e=>e.preventDefault(), { passive:false });
   const now=new Date();
   document.getElementById("fDate").value=now.toISOString().slice(0,10);
   document.getElementById("fTime").value=String(now.getHours()).padStart(2,"0")+":"+String(now.getMinutes()).padStart(2,"0");
+  loadState();  // restore anything saved from a previous (unfinished) session
   ["fName","fInvoice","fVendor","fNotes","fDate","fTime"].forEach(id=>document.getElementById(id).addEventListener("input",refresh));
   // highlight required fields once the user leaves them empty
   ["fName","fInvoice","fVendor"].forEach(id=>{
